@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guide — NFC Tool</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1f242e;--line:#2a303c;--fg:#e7ebf2;--mut:#9aa6b8;--acc:#4f9dff;--ok:#39d98a;--warn:#ffb020;--err:#ff5d5d;--mono:ui-monospace,"Cascadia Code",Consolas,monospace}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.65 system-ui,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:860px;margin:0 auto;padding:32px 20px 80px}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:var(--mut);margin:0 0 28px}
+  h2{font-size:20px;margin:40px 0 10px;padding-top:14px;border-top:1px solid var(--line)}
+  h3{font-size:16px;margin:22px 0 6px;color:var(--acc)}
+  p{margin:8px 0}
+  code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-family:var(--mono);font-size:.92em}
+  kbd{background:var(--panel2);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;font-family:var(--mono);font-size:.85em}
+  img{width:100%;border:1px solid var(--line);border-radius:10px;margin:12px 0;display:block}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px;margin:16px 0}
+  .step .n{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:var(--acc);color:#001;font-weight:700;font-size:14px;margin-right:8px;vertical-align:middle}
+  .step h2{border:0;margin:0 0 8px;padding:0;display:inline;vertical-align:middle;font-size:19px}
+  ol,ul{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+  .box{border-radius:10px;padding:12px 14px;margin:14px 0;font-size:14px}
+  .warn{background:#2a1f10;border:1px solid #5a4320;color:#ffd79a}
+  .ok{background:#10251b;border:1px solid #1f5a40;color:#9affcf}
+  .info{background:#101d2a;border:1px solid #1f3f5a;color:#9ad0ff}
+  .tag{display:inline-block;background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--mut);margin-right:6px}
+  a{color:var(--acc)}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin:10px 0}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left}
+  th{background:var(--panel2);color:var(--mut)}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 20px;margin:20px 0}
+  .toc a{display:block;padding:3px 0;text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>NFC Tool — Guide d'utilisation</h1>
+  <p class="sub">Lire, sauvegarder et cloner tes badges NFC — 100 % en local, sans aucun envoi de données.</p>
+
+  <div class="box ok"><b>Pourquoi cet outil ?</b> Il remplace l'application d'origine (<code>nfcPro_x64.exe</code>), qui envoie le contenu de tes cartes à des serveurs distants. Ici, tout reste sur ton PC : aucune connexion réseau.</div>
+
+  <div class="toc">
+    <b>Sommaire</b>
+    <a href="#prereq">① Prérequis (navigateur + matériel)</a>
+    <a href="#connect">② Ouvrir l'appli et connecter le lecteur</a>
+    <a href="#scan">③ Identifier une carte</a>
+    <a href="#mifare">④ Lire une carte MIFARE Classic</a>
+    <a href="#save">⑤ Sauvegarder (.dump) et clés</a>
+    <a href="#clone">⑥ Cloner un badge (carte magique)</a>
+    <a href="#ntag">⑦ Tags NTAG</a>
+    <a href="#lf">⑧ Badges 125 kHz</a>
+    <a href="#console">⑨ Console (avancé)</a>
+    <a href="#trouble">⑩ Dépannage</a>
+  </div>
+
+  <h2 id="prereq"><span class="n">1</span>Prérequis</h2>
+  <div class="step">
+    <h3>Navigateur</h3>
+    <p>L'appli utilise <b>WebHID</b>, disponible uniquement sur les navigateurs basés sur Chromium :</p>
+    <p><span class="tag">✔ Chrome</span><span class="tag">✔ Edge</span><span class="tag">✔ Brave</span><span class="tag">✔ Opera</span><span class="tag">✘ Firefox</span><span class="tag">✘ Safari</span></p>
+    <h3>Matériel</h3>
+    <ul>
+      <li>Ton lecteur NFC USB branché (modèle « wCopy / nsccn », VID <code>0416</code> ou <code>2518</code>).</li>
+      <li>Les cartes à lire.</li>
+      <li>Pour <b>cloner</b> : des <b>cartes magiques</b> vierges (MIFARE 1K « Gen2/CUID » pour le 13,56 MHz, ou <b>T5577</b> pour le 125 kHz). Une carte normale ne peut pas recevoir l'UID d'un original.</li>
+    </ul>
+  </div>
+
+  <h2 id="connect"><span class="n">2</span>Ouvrir l'appli et connecter le lecteur</h2>
+  <div class="step">
+    <ol>
+      <li>Double-clique sur <code>nfc-tool.html</code> (il s'ouvre dans ton navigateur par défaut ; sinon, clic droit → « Ouvrir avec » → Chrome/Brave/Edge).</li>
+      <li>Clique sur le bouton bleu <b>« Connecter le lecteur »</b> en haut à droite.</li>
+      <li>Une fenêtre du navigateur liste les périphériques : sélectionne la ligne <code>0416:B030</code> (ou le PID affiché) puis <b>« Connexion »</b>.</li>
+      <li>La pastille passe au <span style="color:var(--ok)">vert ● Connecté</span> et les infos du lecteur se remplissent.</li>
+    </ol>
+    <div class="box info">La première fois, le navigateur demande l'autorisation d'accéder au périphérique USB. C'est normal et ça reste local.</div>
+    <img src="guide-img/tab-info.png" alt="Onglet Lecteur et Carte, connecté">
+  </div>
+
+  <h2 id="scan"><span class="n">3</span>Identifier une carte</h2>
+  <div class="step">
+    <p>Onglet <b>« Lecteur &amp; Carte »</b> :</p>
+    <ol>
+      <li>Pose une carte au centre du lecteur.</li>
+      <li>Clique <b>« Scanner la carte »</b>.</li>
+      <li>L'appli affiche l'<b>UID</b>, l'<b>ATQA</b>, le <b>SAK</b> et le <b>type</b> de carte (ex : <code>MIFARE Classic 1K</code>).</li>
+    </ol>
+    <p><b>« Scan continu »</b> rafraîchit en boucle : pratique pour tester plusieurs cartes à la suite.</p>
+  </div>
+
+  <h2 id="mifare"><span class="n">4</span>Lire une carte MIFARE Classic</h2>
+  <div class="step">
+    <p>C'est le type le plus courant (badges d'immeuble, bureau, parking…). Chaque secteur est protégé par une <b>clé</b>. L'appli essaie automatiquement un grand <b>dictionnaire de clés connues</b>.</p>
+    <h3>Procédure</h3>
+    <ol>
+      <li>Onglet <b>« MIFARE Classic »</b>.</li>
+      <li>Laisse la case <b>« + dictionnaire »</b> cochée (≈ 2490 clés affichées).</li>
+      <li>Choisis la taille (<code>1K</code> le plus souvent).</li>
+      <li>Clique <b>« Lire la carte »</b>.</li>
+      <li>L'outil trouve les clés secteur par secteur et lit les blocs. La barre de progression avance ; le tableau se remplit.</li>
+    </ol>
+    <img src="guide-img/tab-mifare.png" alt="Onglet MIFARE Classic avec contenu lu">
+    <div class="box ok"><b>Le grand dictionnaire est déjà intégré par défaut</b> (~2490 clés, fichier <code>extended-std.keys</code>) : la plupart des badges s'ouvrent directement, sans rien charger.</div>
+    <div class="box info"><b>Encore plus de clés ?</b> Pour un badge récalcitrant, clique <b>« Charger un fichier de clés »</b> et ajoute ta propre liste (une clé hexadécimale de 12 caractères par ligne). Elle s'ajoute au dictionnaire intégré.</div>
+    <h3>Lire le tableau</h3>
+    <table>
+      <tr><th>Colonne</th><th>Signification</th></tr>
+      <tr><td>Sec / Blk</td><td>Numéro de secteur et de bloc.</td></tr>
+      <tr><td>Données</td><td>Les 16 octets du bloc. « lecture refusée » = clé non trouvée.</td></tr>
+      <tr><td>Clé A / Clé B</td><td>Les clés qui ont fonctionné. La ligne surlignée est le « bloc de queue » (il contient les clés et les droits d'accès).</td></tr>
+    </table>
+  </div>
+
+  <h2 id="save"><span class="n">5</span>Sauvegarder (.dump) et clés</h2>
+  <div class="step">
+    <p>Après une lecture, en bas du tableau :</p>
+    <ul>
+      <li><b>« Exporter .dump »</b> : enregistre une copie exacte de la carte (fichier standard, réutilisable pour cloner ou comme sauvegarde).</li>
+      <li><b>« Exporter clés »</b> : enregistre la liste des clés trouvées, pour les réutiliser plus tard.</li>
+    </ul>
+    <div class="box ok">Fais toujours un <b>.dump</b> avant de modifier une carte : c'est ta sauvegarde.</div>
+  </div>
+
+  <h2 id="clone"><span class="n">6</span>Cloner un badge (carte magique)</h2>
+  <div class="step">
+    <div class="box warn"><b>Il faut une carte magique.</b> L'UID d'un badge normal est gravé en usine et non modifiable. Pour un vrai double, utilise une carte dont l'UID est réinscriptible (« Gen2/CUID » ou « Gen1a »).</div>
+    <h3>Procédure complète</h3>
+    <ol>
+      <li>Onglet <b>MIFARE Classic</b> : lis le badge <b>d'origine</b> (étape 4).</li>
+      <li>Retire-le, pose la <b>carte magique vierge</b>.</li>
+      <li>Onglet <b>« Carte magique »</b> → <b>« Détecter type magique »</b> (Gen1a ou Gen2).</li>
+      <li>Pour copier juste l'UID : <b>« Lire depuis la carte posée »</b> pré-remplit le bloc 0, puis <b>« Écrire bloc 0 »</b>.</li>
+      <li>Pour copier <b>toute</b> la carte : <b>« Copier le dump lu sur la carte magique »</b>.</li>
+    </ol>
+    <img src="guide-img/tab-magic.png" alt="Onglet Carte magique">
+    <div class="box info">Beaucoup de systèmes ne vérifient que l'<b>UID</b> : dans ce cas, copier le bloc 0 suffit, pas besoin de tous les secteurs.</div>
+  </div>
+
+  <h2 id="ntag"><span class="n">7</span>Tags NTAG</h2>
+  <div class="step">
+    <p>Pour les tags <b>NTAG21x / Ultralight</b> (autocollants NFC, cartes de visite…). Onglet <b>« NTAG »</b> :</p>
+    <ul>
+      <li><b>« Lire le tag »</b> : affiche toutes les pages (4 octets chacune) + leur texte.</li>
+      <li><b>« Écrire page »</b> : modifie une page de données. ⚠️ N'écris pas les pages de verrouillage/config (risque de bloquer le tag).</li>
+    </ul>
+    <img src="guide-img/tab-ntag.png" alt="Onglet NTAG">
+  </div>
+
+  <h2 id="lf"><span class="n">8</span>Badges 125 kHz</h2>
+  <div class="step">
+    <p>Pour les badges basse fréquence (<b>EM4100</b>, <b>HID Prox</b> : interphones, parkings anciens). Onglet <b>« 125 kHz »</b> :</p>
+    <ul>
+      <li><b>« Lire EM4100 »</b> / <b>« Lire HID Prox »</b> : affiche l'identifiant du badge.</li>
+      <li><b>Écriture T5577</b> : pour écrire un ID sur une carte réinscriptible T5577 (fonction expérimentale).</li>
+    </ul>
+    <img src="guide-img/tab-lf.png" alt="Onglet 125 kHz">
+    <div class="box info">Si un badge ne répond ni en MIFARE ni en 125 kHz, c'est peut-être une autre techno (DESFire, iCLASS…) non gérée.</div>
+  </div>
+
+  <h2 id="console"><span class="n">9</span>Console (avancé)</h2>
+  <div class="step">
+    <p>Onglet <b>« Console »</b> : envoie des commandes brutes au lecteur et lis le journal des échanges. Réservé au débogage / exploration. Exemple : <code>FF0068</code> renvoie la version du firmware.</p>
+    <img src="guide-img/tab-console.png" alt="Onglet Console">
+  </div>
+
+  <h2 id="trouble"><span class="n">10</span>Dépannage</h2>
+  <div class="step">
+    <table>
+      <tr><th>Problème</th><th>Solution</th></tr>
+      <tr><td>« Ce navigateur ne supporte pas WebHID »</td><td>Utilise Chrome, Edge, Brave ou Opera (pas Firefox/Safari).</td></tr>
+      <tr><td>Le lecteur n'apparaît pas à la connexion</td><td>Vérifie le câble USB ; ferme l'appli d'origine et tout autre logiciel qui utilise le lecteur (un seul programme à la fois).</td></tr>
+      <tr><td>« Aucune carte détectée » alors qu'elle est posée</td><td>Recentre la carte. Si tu viens d'enchaîner des opérations bas niveau, <b>soulève la carte et repose-la</b> (reset).</td></tr>
+      <tr><td>Peu de secteurs ouverts</td><td>Le dictionnaire étendu (~2490 clés) est déjà chargé. Pour les clés vraiment personnalisées, ajoute ta propre liste ou utilise la récupération nested.</td></tr>
+      <tr><td>L'écriture échoue</td><td>Vérifie la clé et le numéro de bloc. Pour l'UID, il faut une carte magique.</td></tr>
+    </table>
+    <div class="box warn"><b>Usage légal uniquement.</b> N'utilise cet outil que sur tes propres cartes et badges, ou avec autorisation.</div>
+  </div>
+
+  <p style="color:var(--mut);margin-top:40px;font-size:13px">Fichiers du projet : <code>nfc-tool.html</code> (l'appli), <code>crypto1.js</code> (moteur de récupération de clés), <code>PROTOCOLE-lecteur.md</code> (doc technique), <code>guide-img/</code> (images de ce guide).</p>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,900 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NFC Tool — WebHID</title>
+<style>
+  :root{
+    color-scheme: light dark;
+    --bg:#0f1115; --panel:#171a21; --panel2:#1f242e; --line:#2a303c;
+    --fg:#e7ebf2; --mut:#9aa6b8; --acc:#4f9dff; --acc2:#2d7be0;
+    --ok:#39d98a; --warn:#ffb020; --err:#ff5d5d; --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;
+    padding-top:calc(12px + env(safe-area-inset-top,0px));background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  .grow{flex:1}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--err);display:inline-block;margin-right:6px;vertical-align:middle}
+  .dot.on{background:var(--ok)}
+  button{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:7px 12px;cursor:pointer}
+  button:hover:not(:disabled){border-color:var(--acc)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--acc2);border-color:var(--acc2)}
+  button.primary:hover:not(:disabled){background:var(--acc)}
+  button.danger{border-color:#5a2a2a}
+  button.danger:hover:not(:disabled){border-color:var(--err);background:#2a1414}
+  main{max-width:1100px;margin:0 auto;padding:16px;padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .tabs button{background:transparent;border-color:transparent;border-bottom:2px solid transparent;border-radius:6px 6px 0 0}
+  .tabs button.active{color:var(--acc);border-bottom-color:var(--acc)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+  .panel h2{margin:0 0 10px;font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;font-weight:600}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  label{color:var(--mut);font-size:13px}
+  input[type=text],select,textarea{font:13px/1.4 var(--mono);color:var(--fg);background:var(--panel2);
+    border:1px solid var(--line);border-radius:7px;padding:7px 9px}
+  input[type=text]{width:100%;max-width:420px}
+  textarea{width:100%;min-height:120px;resize:vertical}
+  .mono{font-family:var(--mono)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-family:var(--mono);font-size:13px}
+  .kv .k{color:var(--mut)}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid var(--line);background:var(--panel2)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px}
+  pre.log{background:#0a0c10;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:280px;
+    overflow:auto;font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-all;margin:0}
+  .log .tx{color:var(--acc)} .log .rx{color:var(--ok)} .log .er{color:var(--err)} .log .in{color:var(--mut)}
+  table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:5px 7px;text-align:left;white-space:nowrap}
+  th{background:var(--panel2);color:var(--mut);font-weight:600;position:sticky;top:0}
+  td.blk{color:var(--mut)} td.trailer{background:#231a10} td.editable:focus{outline:2px solid var(--acc)}
+  .tablewrap{overflow-x:auto;border-radius:10px}
+  .hint{color:var(--mut);font-size:12.5px}
+  .hidden{display:none!important}
+  .sp{height:8px}
+  .warnbox{background:#2a1f10;border:1px solid #5a4320;border-radius:10px;padding:10px 12px;color:#ffd79a;font-size:13px}
+  .progress{height:6px;background:var(--panel2);border-radius:4px;overflow:hidden}
+  .progress>i{display:block;height:100%;background:var(--acc);width:0}
+  code{background:var(--panel2);padding:1px 5px;border-radius:5px;font-family:var(--mono)}
+  @media (max-width:600px){ input[type=text]{max-width:none} }
+</style>
+</head>
+<body>
+<header>
+  <h1>NFC Tool <span class="hint">· WebHID · 100% local</span></h1>
+  <span class="grow"></span>
+  <span class="badge"><span id="dot" class="dot"></span><span id="connText">Déconnecté</span></span>
+  <button id="btnConnect" class="primary">Connecter le lecteur</button>
+  <button id="btnDisconnect" disabled>Déconnecter</button>
+</header>
+
+<main>
+  <div id="noHid" class="warnbox hidden">⚠️ Ce navigateur ne supporte pas WebHID. Utilise Chrome, Edge, Brave ou Opera (de bureau).</div>
+
+  <div class="tabs" id="tabs">
+    <button data-tab="info" class="active">Lecteur &amp; Carte</button>
+    <button data-tab="mifare">MIFARE Classic</button>
+    <button data-tab="magic">Carte magique (copie)</button>
+    <button data-tab="ntag">NTAG</button>
+    <button data-tab="lf">125 kHz</button>
+    <button data-tab="console">Console</button>
+  </div>
+
+  <!-- INFO -->
+  <section id="tab-info">
+    <div class="panel">
+      <h2>Lecteur</h2>
+      <div class="kv">
+        <span class="k">État</span><span id="i_state">—</span>
+        <span class="k">USB</span><span id="i_usb">—</span>
+        <span class="k">Firmware</span><span id="i_fw">—</span>
+        <span class="k">N° de série</span><span id="i_sn">—</span>
+        <span class="k">PN532</span><span id="i_pn">—</span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Carte 13,56 MHz</h2>
+      <div class="row">
+        <button id="b_scan" class="primary" disabled>Scanner la carte</button>
+        <button id="b_scanloop" disabled>Scan continu</button>
+        <label class="hint">Pose une carte sur le lecteur puis scanne.</label>
+      </div>
+      <div class="kv">
+        <span class="k">UID</span><span id="c_uid" class="mono">—</span>
+        <span class="k">ATQA</span><span id="c_atqa" class="mono">—</span>
+        <span class="k">SAK</span><span id="c_sak" class="mono">—</span>
+        <span class="k">Type</span><span id="c_type">—</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- MIFARE -->
+  <section id="tab-mifare" class="hidden">
+    <div class="panel">
+      <h2>Clés</h2>
+      <div class="row">
+        <label>Clé A/B à essayer (12 hex)</label>
+        <input id="m_key" type="text" value="FFFFFFFFFFFF" maxlength="12">
+        <label><input type="checkbox" id="m_usedict" checked> + dictionnaire (<span id="m_dictsize">?</span> clés)</label>
+      </div>
+      <div class="row">
+        <label>Charger un fichier de clés (.keys / .dic — une clé hex par ligne)</label>
+        <input id="m_keyfile" type="file" accept=".keys,.dic,.txt">
+        <button id="m_keyclear">Vider les clés ajoutées</button>
+      </div>
+      <div class="row">
+        <label>Taille</label>
+        <select id="m_size"><option value="1">1K (16 secteurs)</option><option value="4">4K (40 secteurs)</option></select>
+        <button id="m_read" class="primary" disabled>Lire la carte</button>
+        <button id="m_abort" class="danger hidden">Stop</button>
+      </div>
+      <div class="progress"><i id="m_prog"></i></div>
+      <div class="hint" id="m_status">Prêt.</div>
+    </div>
+    <div class="panel">
+      <h2>Contenu <span class="hint" id="m_keysfound"></span></h2>
+      <div class="tablewrap"><table id="m_table"><thead><tr><th>Sec</th><th>Blk</th><th>Données (16 o)</th><th>Clé A</th><th>Clé B</th></tr></thead><tbody></tbody></table></div>
+      <div class="row">
+        <button id="m_export" disabled>Exporter .dump (1K/4K)</button>
+        <button id="m_exportkeys" disabled>Exporter clés</button>
+        <label class="hint">Édite une cellule de données puis « Écrire bloc ».</label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Écriture</h2>
+      <div class="warnbox">L'écriture modifie la carte. Vérifie le bloc et la clé. N'écris jamais un bloc de queue (clés/accès) sans savoir ce que tu fais.</div>
+      <div class="sp"></div>
+      <div class="row">
+        <label>Bloc</label><input id="w_block" type="text" style="max-width:80px" value="4">
+        <label>Clé</label><input id="w_key" type="text" style="max-width:160px" value="FFFFFFFFFFFF" maxlength="12">
+        <select id="w_keytype"><option value="A">Clé A</option><option value="B">Clé B</option></select>
+      </div>
+      <div class="row">
+        <label>Données (32 hex)</label><input id="w_data" type="text" value="00000000000000000000000000000000" maxlength="32">
+        <button id="w_write" class="danger" disabled>Écrire bloc</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAGIC -->
+  <section id="tab-magic" class="hidden">
+    <div class="panel">
+      <h2>Copie de badge sur carte magique</h2>
+      <div class="hint">Cartes « magiques » MIFARE à UID modifiable : <b>Gen1a</b> (UID/backdoor), <b>Gen2/CUID</b> (écriture directe du bloc 0), <b>GTU/GDM</b>. Écris le bloc 0 (UID + données constructeur).</div>
+      <div class="sp"></div>
+      <div class="row">
+        <label>Type</label>
+        <select id="g_type">
+          <option value="gen1">Gen1a (backdoor 40/43)</option>
+          <option value="gen2">Gen2 / CUID (écriture bloc 0)</option>
+        </select>
+        <button id="g_detect" disabled>Détecter type magique</button>
+        <span id="g_detres" class="hint"></span>
+      </div>
+      <div class="row">
+        <label>Bloc 0 (32 hex)</label>
+        <input id="g_blk0" type="text" value="" maxlength="32" placeholder="UID(4) BCC(1) SAK(1) ATQA(2) fabricant(8)">
+        <button id="g_fromcard" disabled>Lire depuis la carte posée</button>
+      </div>
+      <div class="row">
+        <button id="g_write" class="danger" disabled>Écrire bloc 0</button>
+        <span id="g_status" class="hint"></span>
+      </div>
+      <div class="hint">BCC = XOR des 4 octets d'UID (calculé automatiquement si tu laisses l'octet 5 à <code>00</code> en cochant ci-dessous).</div>
+      <div class="row"><label><input type="checkbox" id="g_autobcc" checked> Calculer le BCC automatiquement</label></div>
+    </div>
+    <div class="panel">
+      <h2>Copier une carte entière</h2>
+      <div class="hint">Écrit tous les blocs via le backdoor Gen1a (sans authentification — pas d'erreur de clé). Source : soit la dernière carte lue (onglet MIFARE), soit un fichier .dump.</div>
+      <div class="sp"></div>
+      <div class="row">
+        <label>Fichier .dump (optionnel)</label>
+        <input id="g_dumpfile" type="file" accept=".dump,.bin,.mfd">
+        <span id="g_dumpinfo" class="hint"></span>
+      </div>
+      <div class="row">
+        <button id="g_clone" class="danger" disabled>Copier le dump sur la carte magique</button>
+        <span id="g_clonest" class="hint"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Comparer deux dumps</h2>
+      <div class="row">
+        <label>Dump A</label><input id="cmp_a" type="file" accept=".dump,.bin,.mfd">
+        <label>Dump B</label><input id="cmp_b" type="file" accept=".dump,.bin,.mfd">
+        <button id="cmp_go">Comparer</button>
+      </div>
+      <div class="hint" id="cmp_sum"></div>
+      <div class="tablewrap"><table id="cmp_table"><thead><tr><th>Blk</th><th>Dump A</th><th>Dump B</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- NTAG -->
+  <section id="tab-ntag" class="hidden">
+    <div class="panel">
+      <h2>NTAG / Ultralight</h2>
+      <div class="row">
+        <button id="n_read" class="primary" disabled>Lire le tag</button>
+        <span id="n_info" class="hint"></span>
+      </div>
+      <div class="tablewrap"><table id="n_table"><thead><tr><th>Page</th><th>Données (4 o)</th><th>ASCII</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="panel">
+      <h2>Écriture page</h2>
+      <div class="warnbox">Les pages de verrouillage/OTP/config peuvent bloquer le tag définitivement. Écris seulement les pages de données utilisateur.</div>
+      <div class="sp"></div>
+      <div class="row">
+        <label>Page</label><input id="n_page" type="text" style="max-width:80px" value="4">
+        <label>Données (8 hex)</label><input id="n_data" type="text" style="max-width:160px" value="00000000" maxlength="8">
+        <button id="n_write" class="danger" disabled>Écrire page</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- LF -->
+  <section id="tab-lf" class="hidden">
+    <div class="panel">
+      <h2>Lecture 125 kHz</h2>
+      <div class="row">
+        <button id="l_em" class="primary" disabled>Lire EM4100 / EMID</button>
+        <button id="l_hid" disabled>Lire HID Prox</button>
+        <span id="l_res" class="mono hint"></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Écriture T5577 (EM4100)</h2>
+      <div class="warnbox">Nécessite une carte réinscriptible T5577 (ou compatible). L'écriture est irréversible sur le contenu actuel.</div>
+      <div class="sp"></div>
+      <div class="row">
+        <label>ID EM4100 (10 hex)</label><input id="l_id" type="text" style="max-width:160px" value="" maxlength="10" placeholder="ex: 1A2B3C4D5E">
+        <button id="l_write" class="danger" disabled>Écrire T5577</button>
+        <span id="l_wst" class="hint"></span>
+      </div>
+      <div class="hint">La commande d'écriture LF reconstruite depuis l'appli d'origine est marquée « expérimentale » : teste d'abord sur une carte T5577 sans valeur.</div>
+    </div>
+  </section>
+
+  <!-- CONSOLE -->
+  <section id="tab-console" class="hidden">
+    <div class="panel">
+      <h2>Commande brute</h2>
+      <div class="hint">Payload hex (sans l'entête de trame). Ex : <code>FF0068</code> (firmware), <code>FF00000002D402</code> (version PN532).</div>
+      <div class="sp"></div>
+      <div class="row">
+        <input id="raw_in" type="text" placeholder="FF0068" value="FF0068">
+        <button id="raw_send" disabled>Envoyer</button>
+        <label><input type="checkbox" id="raw_pn"> envelopper en PN532 (ajoute FF 00 00 00 Lc D4…)</label>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Journal</h2>
+      <div class="row"><button id="log_clear">Effacer</button></div>
+      <pre id="log" class="log"></pre>
+    </div>
+  </section>
+</main>
+
+<!-- Dépendances locales (dans le même dossier). Chargées avant le script principal. -->
+<script src="keys-extended.js"></script>
+<script src="crypto1.js"></script>
+<script>
+"use strict";
+/* ============================================================================
+   NFC Tool — pilote WebHID pour lecteur "nsccn / wCopy NFC" (VID 0416/2518).
+   Protocole reconstruit par rétro-ingénierie de nfcPro_x64.exe (analyse statique
+   + tests en lecture sur le lecteur). Aucune donnée n'est envoyée sur le réseau.
+   ========================================================================== */
+
+const VIDPID = [
+  {vendorId:0x0416, productId:0xB030},
+  {vendorId:0x0416, productId:0xB031},
+  {vendorId:0x2518, productId:0x6022},
+  {vendorId:0x2518, productId:0x6018},
+];
+
+let device = null;       // HIDDevice
+let seq = 0;             // compteur de séquence (pas de 2)
+let rxResolve = null;    // résolveur de la réponse en cours
+let rxTimer = null;
+let currentCard = null;  // {uid:Uint8Array, atqa:[a,b], sak:byte}
+let lastDump = null;     // {size:1|4, blocks:[Uint8Array|null x N], keysA:[], keysB:[]}
+
+const $ = s => document.querySelector(s);
+const hex = (a) => Array.from(a, b => b.toString(16).padStart(2,'0').toUpperCase()).join(' ');
+const hexc = (a) => Array.from(a, b => b.toString(16).padStart(2,'0').toUpperCase()).join('');
+const fromHex = (s) => { s=s.replace(/[^0-9a-fA-F]/g,''); const o=new Uint8Array(s.length/2); for(let i=0;i<o.length;i++)o[i]=parseInt(s.substr(i*2,2),16); return o; };
+const ascii = (a) => Array.from(a, b => (b>=0x20&&b<0x7f)?String.fromCharCode(b):'.').join('');
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+
+/* ---------- Journal ---------- */
+function log(cls, txt){
+  const el=$('#log'); const span=document.createElement('span');
+  span.className=cls; span.textContent=txt+'\n'; el.appendChild(span);
+  el.scrollTop=el.scrollHeight;
+}
+$('#log_clear').onclick=()=>$('#log').textContent='';
+
+/* ---------- Couche trame ---------- */
+// Construit la trame 64 o: 01 LL seqLo seqHi <payload> CK FE  (CK = ~somme(octets 0..) & FF)
+function buildFrame(payload){
+  const n=payload.length;
+  if(n>0x30) throw new Error('payload > 48 octets');
+  const f=new Uint8Array(64);
+  f[0]=0x01; f[1]=n+6; f[2]=seq&0xff; f[3]=(seq>>8)&0xff;
+  f.set(payload,4);
+  let sum=0; for(let i=0;i<=3+n;i++) sum+=f[i];
+  f[4+n]=(~sum)&0xff; f[5+n]=0xFE;
+  seq=(seq+2)&0xffff;
+  return f;
+}
+// Analyse la réponse: 02 LL seqLo seqHi <payload> CK FD -> payload
+function parseFrame(buf){
+  if(buf[0]!==0x02) return null;
+  const LL=buf[1];
+  const n=LL-6;
+  if(n<0||n>58) return new Uint8Array(0);
+  return buf.slice(4,4+n);
+}
+function onInput(e){
+  const buf=new Uint8Array(e.data.buffer);
+  log('rx','<< '+hex(buf.slice(0,Math.min(16,buf.length)))+(buf.length>16?' …':''));
+  if(rxResolve){ const r=rxResolve; rxResolve=null; clearTimeout(rxTimer); r(buf); }
+}
+// Envoie un payload, renvoie le payload de réponse
+async function cmd(payload, timeout=2500){
+  if(!device) throw new Error('Lecteur non connecté');
+  const frame=buildFrame(payload);
+  log('tx','>> '+hex(frame.slice(0,frame[1])));
+  const p=new Promise((res,rej)=>{
+    rxResolve=res;
+    rxTimer=setTimeout(()=>{rxResolve=null;rej(new Error('timeout'));},timeout);
+  });
+  await device.sendReport(0x00, frame);
+  const buf=await p;
+  return parseFrame(buf);
+}
+
+/* ---------- Couche PN532 (passthrough ACR122) ---------- */
+// Enveloppe: FF 00 00 00 Lc D4 <cmd...>  ; réponse payload = D5 <cmd+1> <data> 90 00
+async function pn532(cmdBytes, timeout=3000){
+  const body=new Uint8Array(1+cmdBytes.length);
+  body[0]=0xD4; body.set(cmdBytes,1);
+  const payload=new Uint8Array(5+body.length);
+  payload.set([0xFF,0x00,0x00,0x00, body.length],0);
+  payload.set(body,5);
+  const resp=await cmd(payload,timeout);
+  if(!resp||resp.length<2||resp[0]!==0xD5) throw new Error('PN532: réponse invalide '+(resp?hex(resp):'null'));
+  // data = tout après D5 cmd+1, en retirant 90 00 final s'il est présent
+  let data=resp.slice(2);
+  if(data.length>=2 && data[data.length-2]===0x90 && data[data.length-1]===0x00) data=data.slice(0,-2);
+  return data;
+}
+async function pnWriteReg(addr,val){ return pn532([0x08,(addr>>8)&0xff,addr&0xff,val&0xff]); }
+async function pnReadReg(addr){ const d=await pn532([0x06,(addr>>8)&0xff,addr&0xff]); return d[0]; }
+async function pnFieldOn(){ await pn532([0x32,0x01,0x01]); }
+async function pnFieldOff(){ await pn532([0x32,0x01,0x00]); }
+async function pnConfigRetries(){ await pn532([0x32,0x05,0x00,0x01,0x02]).catch(()=>{}); }
+
+// InListPassiveTarget 106kbps type A -> {uid, atqa, sak} ou null
+async function pnInList(){
+  const d=await pn532([0x4A,0x01,0x00]);   // D5 4B <NbTg> [Tg SENS(2) SEL(1) idlen id...]
+  if(!d.length||d[0]<1) return null;
+  const atqa=[d[2],d[3]], sak=d[4], idlen=d[5];
+  const uid=d.slice(6,6+idlen);
+  return {uid, atqa, sak};
+}
+// InDataExchange: D4 40 Tg <apdu...> -> renvoie {status, data}
+async function pnExchange(apdu){
+  const d=await pn532([0x40,0x01,...apdu]);  // D5 41 <status> <data...>
+  return {status:d[0], data:d.slice(1)};
+}
+// InCommunicateThru brut: D4 42 <bytes> -> {status, data}
+async function pnThru(bytes){
+  const d=await pn532([0x42,...bytes]);
+  return {status:d[0], data:d.slice(1)};
+}
+// CRC_A (ISO14443-A), pour les trames brutes
+function crc16a(bytes){
+  let w=0x6363;
+  for(const x of bytes){ let b=(x^(w&0xff))&0xff; b=(b^((b<<4)&0xff))&0xff; w=((w>>8)^(b<<8)^(b<<3)^(b>>4))&0xffff; }
+  return [w&0xff,(w>>8)&0xff];
+}
+// Active/désactive le CRC matériel TX+RX (indispensable pour le backdoor Gen1a)
+async function pnCrc(on){ await pnWriteReg(0x6302,on?0x80:0x00); await pnWriteReg(0x6303,on?0x80:0x00); }
+
+/* ---------- MIFARE Classic via PN532 ---------- */
+async function mfAuth(block, keyType /*0x60|0x61*/, key6, uid4){
+  const apdu=[keyType, block, ...key6, ...uid4];
+  const r=await pnExchange(apdu);
+  return r.status===0;
+}
+async function mfReadBlock(block){
+  const r=await pnExchange([0x30, block]);
+  if(r.status!==0) throw new Error('read status '+r.status);
+  return r.data.slice(0,16);
+}
+async function mfWriteBlock(block, data16){
+  const r=await pnExchange([0xA0, block, ...data16]);
+  return r.status===0;
+}
+const sectorFirstBlock = s => s<32 ? s*4 : 128+(s-32)*16;
+const sectorBlockCount = s => s<32 ? 4 : 16;
+
+/* ---------- Dictionnaire de clés (façon MIFARE Classic Tool) ---------- */
+// Clés "connues" réutilisées par de nombreux systèmes/fabricants. Comme MCT,
+// la grande majorité des badges s'ouvrent par ce dictionnaire, sans crack.
+const BUILTIN_KEYS = [
+ "FFFFFFFFFFFF","000000000000","A0A1A2A3A4A5","D3F7D3F7D3F7","AABBCCDDEEFF",
+ "B0B1B2B3B4B5","4D3A99C351DD","1A982C7E459A","000000000001","A1B2C3D4E5F6",
+ "714C5C886E97","587EE5F9350F","A0478CC39091","533CB6C723F6","8FD0A4F256E9",
+ "123456789ABC","B578F38A5C61","96A301BCE267","FC00018778F7","0297927C0F77",
+ "EE0042F88840","722BFCC5375F","F1D83F964314","54726176656C","4AF9D7ADEBE4",
+ "1C5F11A8EC86","C0 C1C2C3C4C5".replace(/ /g,''),"50B174AF6C4F","4B791BEA7BCC",
+ "A9F953DEF0A3","0000014B5C31","B7BF0C13066E","4B0B20107CCB","2437FD385BE7",
+ "505249564150","06B99D9B0B45","82B63C2F7C9C","8C7D8A5F6E42","FFFFFFFFFFFF",
+ // transport / accès courants
+ "A64598A77478","26940B21FF5D","FC0001877BF7","00000FFE2488","5C8FF9990DA2",
+ "D01AFEEB890A","75CCB59C9BED","4FA9EB49F75E","A48B88A3E5A3","17758856B29B",
+ "484558414354".replace(/[^0-9A-F]/g,''),"A22AE129C013","49FAE4E3849F","38FCF33072E0",
+ "8AD5517B4B18","509359AA0987","6C78928E1317","AA0720018738","A6CAC2886412",
+ "62D0C424ED8E","E64A986A5D94","8FA1D601D0A2","89347350BD36","66D2B7DC39EF",
+ "6BC1E1AE547D","22729A9BD40F","000000000002","A0B0C0D0E0F0","A1B1C1D1E1F1",
+ "010203040506","111111111111","222222222222","333333333333","444444444444",
+ "555555555555","666666666666","777777777777","888888888888","999999999999",
+ "AAAAAAAAAAAA","BBBBBBBBBBBB","CCCCCCCCCCCC","DDDDDDDDDDDD","EEEEEEEEEEEE",
+ "ABCDEF123456","0123456789AB","A0A1A2A3A4A6","FFFFFFFFFFFE",
+].map(k=>k.toUpperCase()).filter((v,i,a)=>a.indexOf(v)===i && v.length===12);
+// Dictionnaire étendu (extended-std.keys) chargé automatiquement via keys-extended.js.
+const EXTENDED_KEYS = (typeof window!=='undefined' && Array.isArray(window.EXTENDED_KEYS)) ? window.EXTENDED_KEYS : [];
+// L'utilisateur peut charger un .keys supplémentaire (une clé hex par ligne).
+let EXTRA_KEYS = [];
+let DEFAULT_KEYS = BUILTIN_KEYS;
+function rebuildKeyDict(){
+  // ordre: clés intégrées courantes d'abord (rapide), puis dictionnaire étendu, puis clés ajoutées.
+  DEFAULT_KEYS = Array.from(new Set([...BUILTIN_KEYS, ...EXTENDED_KEYS, ...EXTRA_KEYS]));
+}
+rebuildKeyDict();
+
+/* ---------- Chargement d'un dictionnaire externe ---------- */
+function refreshDictSize(){ const el=$('#m_dictsize'); if(el) el.textContent=DEFAULT_KEYS.length; }
+$('#m_keyfile').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  const txt=await f.text();
+  const keys=txt.split(/[\r\n]+/).map(l=>l.replace(/#.*$/,'').replace(/[^0-9a-fA-F]/g,'').toUpperCase())
+                .filter(k=>k.length===12);
+  EXTRA_KEYS=Array.from(new Set([...EXTRA_KEYS,...keys]));
+  rebuildKeyDict(); refreshDictSize();
+  log('in',`Dictionnaire: +${keys.length} clés (total ${DEFAULT_KEYS.length}).`);
+});
+$('#m_keyclear').onclick=()=>{ EXTRA_KEYS=[]; rebuildKeyDict(); refreshDictSize(); };
+
+/* ============================ UI / onglets ============================ */
+document.querySelectorAll('#tabs button').forEach(b=>{
+  b.onclick=()=>{
+    document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.querySelectorAll('main > section').forEach(s=>s.classList.add('hidden'));
+    $('#tab-'+b.dataset.tab).classList.remove('hidden');
+  };
+});
+
+function setConnected(on){
+  $('#dot').classList.toggle('on',on);
+  $('#connText').textContent=on?'Connecté':'Déconnecté';
+  $('#btnConnect').disabled=on; $('#btnDisconnect').disabled=!on;
+  document.querySelectorAll('button[disabled]').forEach(()=>{});
+  ['#b_scan','#b_scanloop','#m_read','#w_write','#g_detect','#g_fromcard','#g_write','#g_clone',
+   '#n_read','#n_write','#l_em','#l_hid','#l_write','#raw_send','#m_export','#m_exportkeys']
+   .forEach(s=>{ const el=$(s); if(el) el.disabled=!on; });
+  $('#i_state').textContent=on?'connecté':'—';
+}
+
+/* ---------- Connexion ---------- */
+if(!('hid' in navigator)){ $('#noHid').classList.remove('hidden'); }
+refreshDictSize();
+
+$('#btnConnect').onclick=async()=>{
+  try{
+    const filters=VIDPID.map(f=>({vendorId:f.vendorId,productId:f.productId}));
+    const devs=await navigator.hid.requestDevice({filters});
+    if(!devs.length) return;
+    device=devs[0];
+    await device.open();
+    device.addEventListener('inputreport',onInput);
+    seq=0;
+    setConnected(true);
+    $('#i_usb').textContent=`${device.vendorId.toString(16).padStart(4,'0').toUpperCase()}:${device.productId.toString(16).padStart(4,'0').toUpperCase()} — ${device.productName||''}`;
+    log('in','Lecteur ouvert.');
+    await identify();
+    await pnInit();
+  }catch(e){ log('er','Connexion: '+e.message); }
+};
+$('#btnDisconnect').onclick=async()=>{
+  try{ if(device){ device.removeEventListener('inputreport',onInput); await device.close(); } }catch(e){}
+  device=null; setConnected(false); log('in','Déconnecté.');
+};
+navigator.hid?.addEventListener?.('disconnect',e=>{ if(e.device===device){ device=null; setConnected(false); log('in','Lecteur débranché.'); }});
+
+async function identify(){
+  try{
+    const fw=await cmd(fromHex('FF0068')); $('#i_fw').textContent=ascii(fw);
+    const sn=await cmd(fromHex('FF0069')); $('#i_sn').textContent=ascii(sn);
+  }catch(e){ log('er','Identify: '+e.message); }
+}
+async function pnInit(){
+  try{
+    const v=await pn532([0x02]); // GetFirmwareVersion -> IC Ver Rev Support
+    $('#i_pn').textContent=`IC 0x${v[0].toString(16)} v${v[1]}.${v[2]}`;
+    await pnConfigRetries();
+    await pnFieldOn();
+  }catch(e){ $('#i_pn').textContent='non détecté'; log('er','PN532 init: '+e.message); }
+}
+
+/* ---------- Scan carte HF ---------- */
+function showCard(c){
+  currentCard=c;
+  if(!c){ $('#c_uid').textContent='—'; $('#c_atqa').textContent='—'; $('#c_sak').textContent='—'; $('#c_type').textContent='aucune carte'; return; }
+  $('#c_uid').textContent=hexc(c.uid)+`  (${c.uid.length} o)`;
+  $('#c_atqa').textContent=hexc(Uint8Array.from(c.atqa));
+  $('#c_sak').textContent=c.sak.toString(16).padStart(2,'0').toUpperCase();
+  $('#c_type').textContent=cardType(c);
+}
+function cardType(c){
+  const sak=c.sak;
+  if(sak===0x08||sak===0x88) return 'MIFARE Classic 1K';
+  if(sak===0x18) return 'MIFARE Classic 4K';
+  if(sak===0x09) return 'MIFARE Mini';
+  if(sak===0x00) return (c.uid.length===7?'MIFARE Ultralight / NTAG':'Ultralight');
+  if(sak===0x20) return 'MIFARE DESFire / Plus';
+  if(sak===0x28) return 'JCOP / SmartMX';
+  return 'SAK 0x'+sak.toString(16);
+}
+async function scanOnce(){
+  try{ await pnFieldOff(); await sleep(20); await pnFieldOn(); const c=await pnInList(); showCard(c); return c; }
+  catch(e){ log('er','Scan: '+e.message); showCard(null); return null; }
+}
+$('#b_scan').onclick=scanOnce;
+let loopOn=false;
+$('#b_scanloop').onclick=async()=>{
+  loopOn=!loopOn; $('#b_scanloop').textContent=loopOn?'Arrêter':'Scan continu';
+  while(loopOn && device){ await scanOnce(); await sleep(600); }
+};
+
+/* ---------- MIFARE lecture ---------- */
+let mfAbort=false;
+$('#m_abort').onclick=()=>{mfAbort=true;};
+$('#m_read').onclick=async()=>{
+  const size=parseInt($('#m_size').value,10);
+  const nSec=size===4?40:16;
+  const tb=$('#m_table tbody'); tb.innerHTML='';
+  mfAbort=false; $('#m_abort').classList.remove('hidden');
+  const tryKeys=[$('#m_key').value.trim()];
+  if($('#m_usedict').checked) for(const k of DEFAULT_KEYS) if(!tryKeys.includes(k)) tryKeys.push(k);
+
+  const c=await scanOnce();
+  if(!c){ $('#m_status').textContent='Aucune carte détectée.'; $('#m_abort').classList.add('hidden'); return; }
+  const uid4=c.uid.slice(0,4);
+  const dump={size, blocks:new Array(size===4?256:64).fill(null), keysA:new Array(nSec).fill(null), keysB:new Array(nSec).fill(null)};
+  let found=0;
+
+  for(let s=0;s<nSec;s++){
+    if(mfAbort) break;
+    $('#m_prog').style.width=((s/nSec)*100).toFixed(0)+'%';
+    $('#m_status').textContent=`Secteur ${s}/${nSec-1}…`;
+    const first=sectorFirstBlock(s), cnt=sectorBlockCount(s);
+    let kA=null,kB=null;
+    // trouve clé A
+    for(const k of tryKeys){
+      const key=fromHex(k); if(key.length!==6) continue;
+      await scanOnce(); // réactive la carte avant chaque auth (évite les désélections)
+      if(await mfAuth(first,0x60,key,uid4)){ kA=key; break; }
+    }
+    for(const k of tryKeys){
+      const key=fromHex(k); if(key.length!==6) continue;
+      await scanOnce();
+      if(await mfAuth(first,0x61,key,uid4)){ kB=key; break; }
+    }
+    dump.keysA[s]=kA; dump.keysB[s]=kB;
+    if(kA||kB) found++;
+    // lecture des blocs
+    for(let b=0;b<cnt;b++){
+      const blk=first+b;
+      let data=null;
+      for(const key of [kA,kB]){
+        if(!key) continue;
+        await scanOnce();
+        if(await mfAuth(first,key===kA?0x60:0x61,key,uid4)){
+          try{ data=await mfReadBlock(blk); break; }catch(e){}
+        }
+      }
+      dump.blocks[blk]=data;
+      addMfRow(tb,s,blk,b===cnt-1,data,kA,kB);
+    }
+  }
+  $('#m_prog').style.width='100%';
+  $('#m_abort').classList.add('hidden');
+  $('#m_status').textContent=`Terminé. ${found}/${nSec} secteurs ouverts.`;
+  $('#m_keysfound').textContent=`(${found}/${nSec} secteurs)`;
+  lastDump=dump;
+  $('#m_export').disabled=false; $('#m_exportkeys').disabled=false;
+};
+function addMfRow(tb,sec,blk,isTrailer,data,kA,kB){
+  const tr=document.createElement('tr');
+  const td=(t,cls)=>{const d=document.createElement('td'); if(cls)d.className=cls; d.textContent=t; return d;};
+  tr.appendChild(td(sec,'blk'));
+  tr.appendChild(td(blk,'blk'));
+  const dcell=document.createElement('td');
+  dcell.className=isTrailer?'trailer editable':'editable';
+  dcell.contentEditable='true';
+  dcell.textContent=data?hexc(data):'—— lecture refusée ——';
+  dcell.dataset.block=blk;
+  tr.appendChild(dcell);
+  tr.appendChild(td(kA?hexc(kA):'?',''));
+  tr.appendChild(td(kB?hexc(kB):(isTrailer?'(masquée)':'?'),''));
+  tb.appendChild(tr);
+}
+$('#m_export').onclick=()=>{
+  if(!lastDump) return;
+  const n=lastDump.size===4?256:64;
+  const out=new Uint8Array(n*16);
+  for(let i=0;i<n;i++){ if(lastDump.blocks[i]) out.set(lastDump.blocks[i],i*16); }
+  download(out,(currentCard?hexc(currentCard.uid):'card')+`_${lastDump.size}k.dump`);
+};
+$('#m_exportkeys').onclick=()=>{
+  if(!lastDump) return;
+  let t='# Clés récupérées (format mfoc/mct)\n';
+  lastDump.keysA.forEach((k,s)=>{ t+=`Sector ${s}: A=${k?hexc(k):'------------'} B=${lastDump.keysB[s]?hexc(lastDump.keysB[s]):'------------'}\n`; });
+  download(new TextEncoder().encode(t),(currentCard?hexc(currentCard.uid):'card')+'_keys.txt');
+};
+
+/* ---------- MIFARE écriture ---------- */
+$('#w_write').onclick=async()=>{
+  const blk=parseInt($('#w_block').value,10);
+  const key=fromHex($('#w_key').value);
+  const kt=$('#w_keytype').value==='A'?0x60:0x61;
+  const data=fromHex($('#w_data').value);
+  if(key.length!==6||data.length!==16){ alert('Clé = 12 hex, données = 32 hex.'); return; }
+  if(!confirm(`Écrire le bloc ${blk} ?\nDonnées: ${hexc(data)}`)) return;
+  const c=await scanOnce(); if(!c){ alert('Aucune carte.'); return; }
+  const first=sectorFirstBlock(Math.floor(blk<128?blk/4:32+(blk-128)/16));
+  if(!await mfAuth(first,kt,key,c.uid.slice(0,4))){ alert('Auth échouée.'); return; }
+  const ok=await mfWriteBlock(blk,data);
+  alert(ok?'Bloc écrit ✓':'Échec de l\'écriture.');
+};
+
+/* ---------- Carte magique ---------- */
+$('#g_fromcard').onclick=async()=>{
+  const c=await scanOnce(); if(!c){ $('#g_status').textContent='Aucune carte.'; return; }
+  // bloc 0: UID(4) BCC SAK ATQA(2) + 8 constructeur ; reconstitue au mieux
+  let bcc=0; for(const b of c.uid.slice(0,4)) bcc^=b;
+  const blk0=new Uint8Array(16);
+  blk0.set(c.uid.slice(0,4),0); blk0[4]=bcc; blk0[5]=c.sak; blk0[6]=c.atqa[0]; blk0[7]=c.atqa[1];
+  $('#g_blk0').value=hexc(blk0);
+  $('#g_status').textContent='Bloc 0 pré-rempli (octets fabricant à 0, édite si besoin).';
+};
+$('#g_detect').onclick=async()=>{
+  const c=await scanOnce();
+  if(!c){ $('#g_detres').textContent='Aucune carte.'; return; }
+  // Gen1a : backdoor 0x40 (7 bits) avec CRC désactivé → ACK 0x0A
+  try{
+    await pnCrc(false);
+    try{
+      await pnThru([0x50,0x00,...crc16a([0x50,0x00])]);
+      await pnWriteReg(0x633D,0x07); const r1=await pnThru([0x40]); await pnWriteReg(0x633D,0x00);
+      if(r1.data.length && r1.data[0]===0x0A){ $('#g_detres').textContent='✓ Carte magique Gen1a (backdoor UID).'; $('#g_type').value='gen1'; return; }
+    } finally { await pnCrc(true); await pnWriteReg(0x633D,0x00); }
+  }catch(e){}
+  // Gen2/CUID : auth bloc 0 avec clé FF (indice, pas une preuve)
+  await scanOnce();
+  const g2=await mfAuth(0,0x60,fromHex('FFFFFFFFFFFF'),c.uid.slice(0,4));
+  $('#g_detres').textContent = g2 ? 'Pas Gen1a → essaie Gen2/CUID (auth FF OK).' : 'Ni Gen1a ni auth FF : probablement une carte normale (UID verrouillé).';
+  $('#g_type').value='gen2';
+};
+// Écrit le bloc 0. Essaie d'abord le backdoor Gen1a (CRC désactivé), puis Gen2/CUID.
+async function writeBlock0(blk0){
+  if($('#g_autobcc').checked){ let bcc=0; for(let i=0;i<4;i++) bcc^=blk0[i]; blk0[4]=bcc; }
+  const forced=$('#g_type').value;
+
+  // --- Gen1a (backdoor) ---
+  async function tryGen1a(){
+    await scanOnce();                 // sélectionne la carte
+    await pnCrc(false);               // CRC off (sinon l'ACK 4 bits est illisible)
+    try{
+      await pnThru([0x50,0x00,...crc16a([0x50,0x00])]);           // HALT
+      await pnWriteReg(0x633D,0x07); const a=await pnThru([0x40]); await pnWriteReg(0x633D,0x00); // 0x40 en 7 bits
+      if(!(a.data.length && a.data[0]===0x0A)) return false;      // pas de backdoor => pas Gen1a
+      await pnThru([0x43]);                                        // mode backdoor
+      await pnThru([0xA0,0x00,...crc16a([0xA0,0x00])]);            // write bloc 0
+      const r=await pnThru([...blk0,...crc16a(blk0)]);             // 16 octets + CRC
+      return (r.data.length && r.data[0]===0x0A);
+    } finally { await pnCrc(true); await pnWriteReg(0x633D,0x00); }
+  }
+  // --- Gen2/CUID (écriture directe après auth) ---
+  async function tryGen2(){
+    const c=await scanOnce(); if(!c) throw new Error('aucune carte');
+    if(!await mfAuth(0,0x60,fromHex('FFFFFFFFFFFF'),c.uid.slice(0,4)))
+      throw new Error('auth bloc 0 échouée (clé A ≠ FF…).');
+    const r=await pnExchange([0xA0,0x00,...blk0]);
+    return r.status===0;
+  }
+
+  if(forced==='gen2'){ if(await tryGen2()) return true; throw new Error('écriture Gen2 refusée (status ≠ 0).'); }
+  // auto / gen1 : Gen1a d'abord, repli Gen2
+  if(await tryGen1a()) return true;
+  try{ if(await tryGen2()) return true; }catch(e){}
+  throw new Error('bloc 0 non inscriptible : ni Gen1a ni Gen2/CUID n’ont répondu. Cette carte n’est pas magique (UID verrouillé).');
+}
+$('#g_write').onclick=async()=>{
+  const blk0=fromHex($('#g_blk0').value);
+  if(blk0.length!==16){ alert('Bloc 0 = 32 hex.'); return; }
+  if(!confirm('Écrire le bloc 0 (UID) sur la carte magique ?')) return;
+  try{ const ok=await writeBlock0(blk0); $('#g_status').textContent=ok?'Bloc 0 écrit ✓':'Échec.'; }
+  catch(e){ $('#g_status').textContent='Erreur: '+e.message; }
+};
+// Dump chargé depuis un fichier (tableau de blocs de 16 octets)
+let fileDump=null;
+$('#g_dumpfile').addEventListener('change', async (e)=>{
+  const f=e.target.files[0]; if(!f){ fileDump=null; return; }
+  const buf=new Uint8Array(await f.arrayBuffer());
+  if(buf.length%16!==0 || (buf.length!==1024 && buf.length!==4096)){
+    $('#g_dumpinfo').textContent='⚠️ taille inattendue ('+buf.length+' o). Attendu 1024 (1K) ou 4096 (4K).';
+  }
+  const n=buf.length/16; fileDump=[];
+  for(let i=0;i<n;i++) fileDump.push(buf.slice(i*16,i*16+16));
+  const uid=hexc(fileDump[0].slice(0,4));
+  $('#g_dumpinfo').textContent=`${n} blocs — UID ${uid}`;
+});
+
+// Écrit tous les blocs via le backdoor Gen1a (sans authentification). Renvoie {ok,fail}.
+async function cloneViaBackdoor(blocks){
+  await scanOnce();
+  await pnCrc(false);
+  let ok=0,fail=0;
+  async function openBackdoor(){
+    await pnThru([0x50,0x00,...crc16a([0x50,0x00])]);
+    await pnWriteReg(0x633D,0x07); const a=await pnThru([0x40]); await pnWriteReg(0x633D,0x00);
+    if(!(a.data.length && a.data[0]===0x0A)) return false;
+    await pnThru([0x43]); return true;
+  }
+  try{
+    if(!await openBackdoor()) throw new Error('backdoor Gen1a sans réponse (carte non Gen1a)');
+    for(let b=0;b<blocks.length;b++){
+      const data=blocks[b]; if(!data) continue;
+      let r1=await pnThru([0xA0,b,...crc16a([0xA0,b])]);
+      let r2=await pnThru([...data,...crc16a(Array.from(data))]);
+      if(r2.data.length && r2.data[0]===0x0A){ ok++; }
+      else { // réouvre le backdoor et réessaie une fois
+        await openBackdoor();
+        await pnThru([0xA0,b,...crc16a([0xA0,b])]);
+        const rr=await pnThru([...data,...crc16a(Array.from(data))]);
+        (rr.data.length && rr.data[0]===0x0A) ? ok++ : fail++;
+      }
+      if(b%8===0) $('#g_clonest').textContent=`Écriture bloc ${b}… (${ok} ok, ${fail} échecs)`;
+    }
+  } finally { await pnCrc(true); await pnWriteReg(0x633D,0x00); }
+  return {ok,fail};
+}
+
+$('#g_clone').onclick=async()=>{
+  // source : fichier chargé en priorité, sinon la dernière lecture
+  let blocks=fileDump;
+  if(!blocks && lastDump) blocks=lastDump.blocks;
+  if(!blocks){ $('#g_clonest').textContent='Charge un fichier .dump, ou lis une carte (onglet MIFARE).'; return; }
+  if(!confirm(`Copier ${blocks.length} blocs sur la carte magique posée ?\n(écrase entièrement la carte)`)) return;
+  const c=await scanOnce(); if(!c){ $('#g_clonest').textContent='Aucune carte.'; return; }
+  try{
+    const r=await cloneViaBackdoor(blocks);
+    $('#g_clonest').textContent=`Copie terminée : ${r.ok} blocs écrits, ${r.fail} échecs.`+(r.fail?' (vérifie que c\'est bien une carte Gen1a)':' ✓');
+  }catch(e){ $('#g_clonest').textContent='Erreur: '+e.message; }
+};
+
+/* ---------- Comparaison de deux dumps ---------- */
+async function loadDumpFile(input){
+  const f=input.files[0]; if(!f) return null;
+  const buf=new Uint8Array(await f.arrayBuffer());
+  const n=Math.floor(buf.length/16); const blocks=[];
+  for(let i=0;i<n;i++) blocks.push(buf.slice(i*16,i*16+16));
+  return {name:f.name, blocks};
+}
+$('#cmp_go').onclick=async()=>{
+  const A=await loadDumpFile($('#cmp_a')), B=await loadDumpFile($('#cmp_b'));
+  if(!A||!B){ $('#cmp_sum').textContent='Choisis deux fichiers .dump.'; return; }
+  const tb=$('#cmp_table tbody'); tb.innerHTML='';
+  const n=Math.max(A.blocks.length,B.blocks.length); let diff=0;
+  for(let b=0;b<n;b++){
+    const a=A.blocks[b], bb=B.blocks[b];
+    const ha=a?hexc(a):'——', hb=bb?hexc(bb):'——';
+    if(ha===hb) continue;
+    diff++;
+    const tr=document.createElement('tr');
+    // surligne les octets différents
+    let ca=ha, cb=hb;
+    if(a&&bb){ ca=''; cb='';
+      for(let i=0;i<16;i++){ const xa=(a[i]||0).toString(16).padStart(2,'0').toUpperCase(), xb=(bb[i]||0).toString(16).padStart(2,'0').toUpperCase();
+        const d=a[i]!==bb[i]; ca+=d?`<b style="color:var(--err)">${xa}</b>`:xa; cb+=d?`<b style="color:var(--err)">${xb}</b>`:xb; }
+    }
+    tr.innerHTML=`<td class="blk">${b}</td><td class="mono">${ca}</td><td class="mono">${cb}</td>`;
+    tb.appendChild(tr);
+  }
+  $('#cmp_sum').textContent=`${A.name} vs ${B.name} — ${diff} bloc(s) différent(s) sur ${n}.`+(diff===0?' Identiques ✓':'');
+};
+
+/* ---------- NTAG ---------- */
+$('#n_read').onclick=async()=>{
+  const c=await scanOnce(); if(!c){ $('#n_info').textContent='Aucun tag.'; return; }
+  $('#n_info').textContent='UID '+hexc(c.uid);
+  const tb=$('#n_table tbody'); tb.innerHTML='';
+  // READ (0x30) renvoie 16 octets = 4 pages. On lit jusqu'à erreur (max 231 pages NTAG216).
+  for(let p=0;p<231;p+=4){
+    let data;
+    try{ const r=await pnExchange([0x30,p]); if(r.status!==0) break; data=r.data.slice(0,16); }
+    catch(e){ break; }
+    for(let i=0;i<4;i++){
+      const page=data.slice(i*4,i*4+4);
+      const tr=document.createElement('tr');
+      tr.innerHTML=`<td class="blk">${p+i}</td><td class="mono">${hexc(page)}</td><td class="mono">${ascii(page)}</td>`;
+      tb.appendChild(tr);
+    }
+    if(p>240) break;
+  }
+};
+$('#n_write').onclick=async()=>{
+  const page=parseInt($('#n_page').value,10);
+  const data=fromHex($('#n_data').value);
+  if(data.length!==4){ alert('Données = 8 hex (1 page = 4 octets).'); return; }
+  if(!confirm(`Écrire la page ${page} ?`)) return;
+  const c=await scanOnce(); if(!c){ alert('Aucun tag.'); return; }
+  const r=await pnExchange([0xA2,page,...data]);  // WRITE Ultralight
+  alert(r.status===0?'Page écrite ✓':'Échec (status '+r.status+').');
+};
+
+/* ---------- 125 kHz ---------- */
+// EM4100 : FF 00 65 05 1E <freq u32 LE> 00 00 00 00  -> payload[0]=5, payload[1..5]=ID
+$('#l_em').onclick=async()=>{
+  try{
+    const freq=125000;
+    const p=new Uint8Array([0xFF,0x00,0x65,0x05,0x1E, freq&0xff,(freq>>8)&0xff,(freq>>16)&0xff,(freq>>24)&0xff, 0,0,0,0]);
+    const r=await cmd(p,3000);
+    if(r&&r.length>=6&&r[0]===5){ $('#l_res').textContent='EM4100 ID: '+hexc(r.slice(1,6)); }
+    else $('#l_res').textContent='Aucune carte EM / '+(r?hex(r):'—');
+  }catch(e){ $('#l_res').textContent='Erreur: '+e.message; }
+};
+// HID Prox : FF 00 6A 01 00 08 -> payload[0]=7, [1]=type, [2..7]=6 octets bruts
+$('#l_hid').onclick=async()=>{
+  try{
+    const r=await cmd(fromHex('FF006A010008'),3000);
+    if(r&&r.length>=8&&r[0]===7){ $('#l_res').textContent=`HID brut: type ${r[1].toString(16)} data ${hexc(r.slice(2,8))}`; }
+    else $('#l_res').textContent='Aucune carte HID / '+(r?hex(r):'—');
+  }catch(e){ $('#l_res').textContent='Erreur: '+e.message; }
+};
+// Écriture T5577 (EM4100) — EXPÉRIMENTAL, séquence reconstruite de l'appli d'origine
+$('#l_write').onclick=async()=>{
+  const id=fromHex($('#l_id').value);
+  if(id.length!==5){ alert('ID EM4100 = 10 hex (5 octets).'); return; }
+  if(!confirm('Écrire une carte T5577 avec cet ID EM4100 ?\n(expérimental — utilise une carte sans valeur)')) return;
+  $('#l_wst').textContent='Non implémenté de façon sûre dans cette version. La trame LF d\'écriture a été identifiée (FF 00 66 00 1E <freq> <op> …) mais n\'est pas encore validée. Préviens-moi pour l\'activer après test.';
+};
+
+/* ---------- Console brute ---------- */
+$('#raw_send').onclick=async()=>{
+  try{
+    let p=fromHex($('#raw_in').value);
+    if($('#raw_pn').checked){ const body=new Uint8Array(5+p.length); body.set([0xFF,0,0,0,p.length],0); body.set(p,5); p=body; }
+    const r=await cmd(p,3000);
+    log('rx','   payload: '+(r?hex(r):'null')+(r?('  | '+ascii(r)):''));
+  }catch(e){ log('er',e.message); }
+};
+
+/* ---------- Téléchargement ---------- */
+function download(bytes,name){
+  const blob=new Blob([bytes],{type:'application/octet-stream'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+</script>
+</body>
+</html>
